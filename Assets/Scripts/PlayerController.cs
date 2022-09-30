@@ -1,11 +1,13 @@
 using Photon.Pun;
-using System.Collections;
 using Photon.Realtime;
 using UnityEngine;
+using UnityEngine.UI;
 using Hashtable = ExitGames.Client.Photon.Hashtable;
 
-public class PlayerController : MonoBehaviourPunCallbacks
+public class PlayerController : MonoBehaviourPunCallbacks, IDamagable
 {
+    [SerializeField] Image healthbarImage;
+    [SerializeField] GameObject ui;
     [SerializeField] float mouseSensitivity, sprintSpeed, walkSpeed, jumpForce, smoothTime;
     [SerializeField] GameObject cameraHolder;
     [SerializeField] Item[] items;
@@ -21,10 +23,17 @@ public class PlayerController : MonoBehaviourPunCallbacks
     Rigidbody rb;
     PhotonView pV;
 
+    const float maxHealth = 100f;
+    float currHealth = maxHealth;
+
+    PlayerManager playerManager;
+
     private void Awake()
     {
         rb = GetComponent<Rigidbody>();
         pV = GetComponent<PhotonView>();
+
+        playerManager = PhotonView.Find((int)pV.InstantiationData[0]).GetComponent<PlayerManager>();
     }
 
     private void Start()
@@ -37,6 +46,7 @@ public class PlayerController : MonoBehaviourPunCallbacks
         {
             Destroy(GetComponentInChildren<Camera>().gameObject);
             Destroy(rb);
+            Destroy(ui);
         }
     }
 
@@ -60,12 +70,15 @@ public class PlayerController : MonoBehaviourPunCallbacks
             }
         }
 
+
         SwitchGunScroll();
 
         if (Input.GetMouseButtonDown(0))
         {
             items[itemIndex].Use();
         }
+
+        CheckLowerBoundsForDeath();
     }
 
     public void LookAround()
@@ -138,17 +151,17 @@ public class PlayerController : MonoBehaviourPunCallbacks
 
     public override void OnPlayerPropertiesUpdate(Player targetPlayer, Hashtable changedProps)
     {
-        if(!pV.IsMine && targetPlayer == pV.Owner)
+        if(changedProps.ContainsKey("itemIndex") && !pV.IsMine && targetPlayer == pV.Owner)
         {
             EquipItem((int)changedProps["itemIndex"]);
         }
     }
 
-    void SwitchGunScroll() 
+    public void SwitchGunScroll()
     {
-        if(Input.GetAxisRaw("Mouse ScrollWheel") > 0f)
+        if (Input.GetAxisRaw("Mouse ScrollWheel") > 0f)
         {
-            if(itemIndex >= items.Length - 1)
+            if (itemIndex >= items.Length - 1)
             {
                 EquipItem(0);
             }
@@ -156,11 +169,11 @@ public class PlayerController : MonoBehaviourPunCallbacks
             {
                 EquipItem(itemIndex + 1);
             }
-            
+
         }
-        else if(Input.GetAxisRaw("Mouse ScrollWheel") < 0f)
+        else if (Input.GetAxisRaw("Mouse ScrollWheel") < 0f)
         {
-            if(itemIndex <= 0)
+            if (itemIndex <= 0)
             {
                 EquipItem(items.Length - 1);
             }
@@ -168,6 +181,38 @@ public class PlayerController : MonoBehaviourPunCallbacks
             {
                 EquipItem(itemIndex - 1);
             }
+        }
+
+    }
+
+    public void TakeDamage(float damage)
+    {
+        pV.RPC(nameof(RPC_TakeDamage), pV.Owner, damage);
+    }
+
+    [PunRPC]
+    void RPC_TakeDamage(float damage, PhotonMessageInfo messageInfo)
+    {
+        currHealth -= damage;
+        healthbarImage.fillAmount = currHealth / maxHealth;
+
+        if(currHealth <= 0)
+        {
+            Die();
+            PlayerManager.Find(messageInfo.Sender).GetKill();
+        }
+    }
+
+    public void Die()
+    {
+        playerManager.Die();
+    }
+
+    public void CheckLowerBoundsForDeath()
+    {
+        if(transform.position.y < -10f)
+        {
+            Die();
         }
     }
 }
